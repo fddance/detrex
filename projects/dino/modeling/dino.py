@@ -74,6 +74,8 @@ class DINO(nn.Module):
         box_noise_scale: float = 1.0,
     ):
         super().__init__()
+        # 模型是否以取样模式工作
+        self.mode_sampling = False
         # define backbone and position embedding module
         self.backbone = backbone
         self.position_embedding = position_embedding
@@ -175,10 +177,18 @@ class DINO(nn.Module):
             img_masks = images.tensor.new_zeros(batch_size, H, W)
 
         # original features
+        # 提取特征,总共获取三个层级的特征图分别
+        # batch_size * 512 * (图片高/8) * (图片宽/8)
+        # batch_size * 1024 * (图片高/16) * (图片宽/16)
+        # batch_size * 1048 * (图片高/32) * (图片宽/32)
         features = self.backbone(images.tensor)  # output feature dict
-
         # project backbone features to the reuired dimension of transformer
         # we use multi-scale features in DINO
+        # 特征转换,将提取出来的特征转换为四个特征
+        # batch_size * 256 * (图片高/8) * (图片宽/8)
+        # batch_size * 256 * (图片高/16) * (图片宽/16)
+        # batch_size * 256 * (图片高/32) * (图片宽/32)
+        # batch_size * 256 * (图片高/64) * (图片宽/64)
         multi_level_feats = self.neck(features)
         multi_level_masks = []
         multi_level_position_embeddings = []
@@ -189,8 +199,8 @@ class DINO(nn.Module):
             multi_level_position_embeddings.append(self.position_embedding(multi_level_masks[-1]))
 
         # denoising preprocessing
-        # prepare label query embedding
-        if self.training:
+        # prepare label query embedding  获取该图片的标注提供给transformer使用
+        if self.training and not self.mode_sampling:
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
             targets = self.prepare_targets(gt_instances)
             input_query_label, input_query_bbox, attn_mask, dn_meta = self.prepare_for_cdn(

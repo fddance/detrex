@@ -129,6 +129,13 @@ class Trainer(SimpleTrainer):
             )
 
 
+def freeze_backbone(model):
+    # 冻结所有特征提取网络,其他地方直接开始训练
+    for k, v in model.named_parameters():
+        if 'backbone' in k:
+            v.requires_grad = False
+
+
 def do_test(cfg, model):
     if "evaluator" in cfg.dataloader:
         ret = inference_on_dataset(
@@ -159,6 +166,7 @@ def do_train(args, cfg):
     """
     # 此处定义模型,模型所有相关均在此处
     model = instantiate(cfg.model)
+    freeze_backbone(model)
     logger = logging.getLogger("detectron2")
     logger.info("Model:\n{}".format(model))
     model.to(cfg.train.device)
@@ -167,7 +175,7 @@ def do_train(args, cfg):
     optim = instantiate(cfg.optimizer)
 
     train_loader = instantiate(cfg.dataloader.train)
-    # 此处具体创建model
+    # 多卡情况下,此处无用
     model = create_ddp_model(model, **cfg.train.ddp)
 
     trainer = Trainer(
