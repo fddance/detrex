@@ -217,6 +217,16 @@ class DINO(nn.Module):
             input_query_label, input_query_bbox, attn_mask, dn_meta = None, None, None, None
         query_embeds = (input_query_label, input_query_bbox)
 
+        # 如果当前模型正在以取样模式工作,那么直接返回transformer encode后的特征以及对应的图片以便后面进行筛选
+        if self.mode_sampling:
+            features = self.transformer.encoder_features(
+                multi_level_feats,
+                multi_level_masks,
+                multi_level_position_embeddings,
+                query_embeds,
+                attn_masks=[attn_mask, None],
+            )
+            return features
         # feed into transformer
         (
             inter_states,
@@ -294,6 +304,18 @@ class DINO(nn.Module):
                 r = detector_postprocess(results_per_image, height, width)
                 processed_results.append({"instances": r})
             return processed_results
+
+    def set_mode_sampling(self, mode_sampling=False):
+        # 修改model以及transformer中的mode_sampling
+        self.mode_sampling = mode_sampling
+        if mode_sampling:
+            self.training = False
+            self.eval()
+            self.transformer.eval()
+        else:
+            self.training = True
+            self.train()
+            self.transformer.train()
 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):

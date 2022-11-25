@@ -460,3 +460,60 @@ class DINOTransformer(nn.Module):
             target_unact,
             topk_coords_unact.sigmoid(),
         )
+
+    def encoder_features(
+        self,
+        multi_level_feats,
+        multi_level_masks,
+        multi_level_pos_embeds,
+        query_embed,
+        attn_masks,
+        **kwargs,
+    ):
+        feat_flatten = []   # 保存特征图转为特征向量后的结果
+        mask_flatten = []   # 保存mask转为向量后的结果
+        lvl_pos_embed_flatten = []  # 保存pos_embed转为向量后的结果,但是该转换中间还会加上一步所有特征层统一加上self.level_embed
+        spatial_shapes = []  # 保存没一层特征图原本维度,h*w
+        for lvl, (feat, mask, pos_embed) in enumerate(
+            zip(multi_level_feats, multi_level_masks, multi_level_pos_embeds)
+        ):
+            bs, c, h, w = feat.shape
+            spatial_shape = (h, w)
+            spatial_shapes.append(spatial_shape)
+
+            feat = feat.flatten(2).transpose(1, 2)  # bs, hw, c 将二维的特征图变为一维向量
+            mask = mask.flatten(1)  # bs, hw   mask也进行拼接
+            pos_embed = pos_embed.flatten(2).transpose(1, 2)  # bs, hw, c
+            # self.level_embed是一个4*256的矩阵,此处每个特征图均会加上该矩阵,是一个超参?四维对应每个特征图的四个scale,特征图的每一个层均会统一加上该矩阵中对应的那个变量
+            lvl_pos_embed = pos_embed + self.level_embeds[lvl].view(1, 1, -1)
+            lvl_pos_embed_flatten.append(lvl_pos_embed)
+            feat_flatten.append(feat)
+            mask_flatten.append(mask)
+        feat_flatten = torch.cat(feat_flatten, 1)  # 将四个scale的特征图进行拼接,下同
+        mask_flatten = torch.cat(mask_flatten, 1)
+        lvl_pos_embed_flatten = torch.cat(lvl_pos_embed_flatten, 1)
+        spatial_shapes = torch.as_tensor(
+            spatial_shapes, dtype=torch.long, device=feat_flatten.device
+        )  # 四个维度的宽高转换为tensor
+        level_start_index = torch.cat(
+            (spatial_shapes.new_zeros((1,)), spatial_shapes.prod(1).cumsum(0)[:-1])
+        )  # 拼接后的特征图中每个scale的起始下标
+        valid_ratios = torch.stack([self.get_valid_ratio(m) for m in multi_level_masks], 1)  # 每张图的缩放比例,一个batch的所有图片会根据最大的h,w进行resize
+
+        reference_points = self.get_reference_points(
+            spatial_shapes, valid_ratios, device=feat.device
+        )  # 获取特征图的参考图?即每个特征图按照比例缩放回去的特征图,应该是为了匹配图上的标记
+        # encoder后的结果,memory就是geal需要使用的特征图,但是此处的特征是四个scale拼接后的结果,具体是否可用未知.
+        memory = self.encoder(
+            query=feat_flatten,
+            key=None,
+            value=None,
+            query_pos=lvl_pos_embed_flatten,
+            query_key_padding_mask=mask_flatten,
+            spatial_shapes=spatial_shapes,
+            reference_points=reference_points,  # bs, num_token, num_level, 2
+            level_start_index=level_start_index,
+            valid_ratios=valid_ratios,
+            **kwargs,
+        )
+        return memory.detach()

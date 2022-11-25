@@ -33,10 +33,14 @@ from detectron2.engine import (
 from detectron2.engine.defaults import create_ddp_model
 from detectron2.evaluation import inference_on_dataset, print_csv_format
 from detectron2.utils import comm
+import active_learning
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 
 logger = logging.getLogger("detrex")
+
+activate_learning_flag = False  # todo 如果使用主动学习打开该选项
+geal_file_name = 'geal_file_list.txt'
 
 
 class Trainer(SimpleTrainer):
@@ -128,12 +132,44 @@ class Trainer(SimpleTrainer):
                 **self.clip_grad_params,
             )
 
+    def reset_data_loader_local(self, data_loader_new):
+        del self.data_loader
+        data_loader = data_loader_new
+        self.data_loader = data_loader
+        self._data_loader_iter_obj = None
+
 
 def freeze_backbone(model):
     # 冻结所有特征提取网络,其他地方直接开始训练
     for k, v in model.named_parameters():
         if 'backbone' in k:
             v.requires_grad = False
+
+
+def filter_dataset_dicts(data_list):
+    if not activate_learning_flag:
+        return data_list
+    print("此处进行样本的筛选")
+    geal_file_list = active_learning.read_from_file(geal_file_name)
+    data_result = []
+    if len(geal_file_list) < 1:
+        # 第一次随机初始化
+        import random
+        print('现在是第一次加载，随机选取 1000 个样本')
+        list_index = random.sample(range(0, len(data_list)), 1000)
+        for index in list_index:
+            data_result.append(data_list[index])
+            geal_file_list.append(data_list[index]['file_name'])
+        active_learning.write_to_file(geal_file_name, geal_file_list)
+    else:
+        # 之后使用每次选择出来的数字
+        print('现在开始主动学习选择的样本')
+        geal_file_list_set = set(geal_file_list)
+        for data in data_list:
+            if geal_file_list_set.__contains__(data['file_name']):
+                data_result.append(data)
+    print('本次加载了 {} 个样本进行训练'.format(str(len(data_result))))
+    return data_result
 
 
 def do_test(cfg, model):
@@ -175,6 +211,7 @@ def do_train(args, cfg):
     optim = instantiate(cfg.optimizer)
 
     train_loader = instantiate(cfg.dataloader.train)
+    train_loader_all = instantiate(cfg.dataloader.train_all)
     # 多卡情况下,此处无用
     model = create_ddp_model(model, **cfg.train.ddp)
 
@@ -216,7 +253,27 @@ def do_train(args, cfg):
         start_iter = trainer.iter + 1
     else:
         start_iter = 0
-    trainer.train(start_iter, cfg.train.max_iter)
+    if not activate_learning_flag:
+        trainer.train(start_iter, cfg.train.max_iter)
+        return
+
+    sample_count = 1000
+    epoch = 10
+    while start_iter < cfg.train.max_iter:
+        logger.info('现在使用了 {} 个样本训练 {} 个epoch'.format(str(sample_count), str(epoch)))
+        # 此处正常开始本次选择样本后的训练
+        temp_max_iter = start_iter + sample_count * epoch
+        trainer.train(start_iter, temp_max_iter)
+        start_iter = temp_max_iter
+        # 此处开始进行主动学习样本的筛选以及dataloader重载
+        sample_count += 1000
+        logger.info('当前轮次训练完毕，现在主动学习将选择出 {} 个样本进行训练'.format(str(sample_count)))
+        geal_file_list = active_learning.read_from_file(geal_file_name)
+        select_sample_list = active_learning.geal_sampling(trainer.model, train_loader_all, sample_count, geal_file_list)
+        active_learning.add_list_to_list(select_sample_list, geal_file_list)
+        trainer.model.set_mode_sampling(False)
+        logger.info('现在开始重新载入dataloader')
+        trainer.reset_data_loader_local(instantiate(cfg.dataloader.train))
 
 
 def main(args):
@@ -243,7 +300,7 @@ if __name__ == "__main__":
     DatasetCatalog.register('coco_2017_val_fddance', lambda: load_coco_json('/home/fddance/data/dataset/coco/annotations/instances_val2017.json',
                                                                               '/home/fddance/data/dataset/coco/val2017',
                                                                               'coco_2017_val_fddance'))
-    args = default_argument_parser(config_file='projects/dino/configs/dino_r50_4scale_12ep.py', resume=True)
+    args = default_argument_parser(config_file='projects/dino/configs/dino_r50_4scale_12ep.py', resume=False)
     # args.add_argument()
     args = args.parse_args()
     launch(
