@@ -516,4 +516,4 @@ class DINOTransformer(nn.Module):
             valid_ratios=valid_ratios,
             **kwargs,
         )
-        return memory.detach()
+        return memory[:, level_start_index[3].item():memory.shape[1], :].detach()

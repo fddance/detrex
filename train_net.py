@@ -211,7 +211,6 @@ def do_train(args, cfg):
     optim = instantiate(cfg.optimizer)
 
     train_loader = instantiate(cfg.dataloader.train)
-    train_loader_all = instantiate(cfg.dataloader.train_all)
     # 多卡情况下,此处无用
     model = create_ddp_model(model, **cfg.train.ddp)
 
@@ -259,6 +258,7 @@ def do_train(args, cfg):
 
     sample_count = 1000
     epoch = 10
+    train_loader_all = instantiate(cfg.dataloader.train_all)
     while start_iter < cfg.train.max_iter:
         logger.info('现在使用了 {} 个样本训练 {} 个epoch'.format(str(sample_count), str(epoch)))
         # 此处正常开始本次选择样本后的训练

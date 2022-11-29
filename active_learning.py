@@ -175,7 +175,8 @@ def geal_sampling(model, sampling_loader, sample_num, geal_file_list):
     num_clusters = 5
     from kmeans_pytorch import kmeans
     from functools import partial
-    for i in range(0, len(sampling_loader.dataset.dataset.dataset)):
+    import math
+    for i in range(0, math.ceil(len(sampling_loader.dataset.dataset.dataset) / sampling_loader.batch_size)):
         data = next(sampling_loader_iter)
         img_feature_list = model(data)  # bz * wh * channels
         # attn_sort, idx_sort = torch.sort(img_feature_list, dim=1, descending=False)  # 对特征attn进行排序
