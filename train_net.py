@@ -58,7 +58,7 @@ class Trainer(SimpleTrainer):
         grad_scaler=None,
     ):
         super().__init__(model=model, data_loader=dataloader, optimizer=optimizer)
-
+        self.temp_max_iter = 9999
         unsupported = "AMPTrainer does not support single-process multi-device training!"
         if isinstance(model, DistributedDataParallel):
             assert not (model.device_ids and len(model.device_ids) > 1), unsupported
@@ -257,23 +257,44 @@ def do_train(args, cfg):
         return
 
     sample_count = 1000
-    epoch = 10
+    epoch = 5
     train_loader_all = instantiate(cfg.dataloader.train_all)
+    if args.resume:
+        geal_file_list = active_learning.read_from_file(geal_file_name)
+        sample_count = len(geal_file_list) if len(geal_file_list) > 0 else sample_count
+    first_iter = True
+    pass_train = False
     while start_iter < cfg.train.max_iter:
         logger.info('现在使用了 {} 个样本训练 {} 个epoch'.format(str(sample_count), str(epoch)))
         # 此处正常开始本次选择样本后的训练
-        temp_max_iter = start_iter + sample_count * epoch
-        trainer.train(start_iter, temp_max_iter)
+        # 此处考虑到如果是恢复训练可能迭代不准确
+        if first_iter and args.resume and sample_count > 1000:
+            temp_sample_count = 1000
+            temp_max_iter = temp_sample_count * epoch
+            while temp_sample_count < sample_count:
+                temp_sample_count = temp_sample_count + 1000
+                temp_max_iter = temp_max_iter + temp_sample_count * epoch
+            if temp_max_iter == start_iter:
+                pass_train = True
+            if temp_max_iter < start_iter:
+                raise Exception("主动学习恢复训练出现问题，之前手动修改过？")
+        else:
+            temp_max_iter = start_iter + sample_count * epoch
+        # temp_max_iter = start_iter + 100
+        if not (first_iter and pass_train):  # 如果是中间挑选样本的过程中出现问题就直接跳过训练而是直接取寻找样本
+            trainer.temp_max_iter = temp_max_iter
+            trainer.train(start_iter, cfg.train.max_iter)
         start_iter = temp_max_iter
         # 此处开始进行主动学习样本的筛选以及dataloader重载
         sample_count += 1000
-        logger.info('当前轮次训练完毕，现在主动学习将选择出 {} 个样本进行训练'.format(str(sample_count)))
         geal_file_list = active_learning.read_from_file(geal_file_name)
+        logger.info('当前轮次训练完毕，现在主动学习将选择出 {} 个样本进行训练,实际选出了 {} 个样本进行训练'.format(str(sample_count), str(len(geal_file_list))))
         select_sample_list = active_learning.geal_sampling(trainer.model, train_loader_all, sample_count, geal_file_list)
         active_learning.add_list_to_list(select_sample_list, geal_file_list)
         trainer.model.set_mode_sampling(False)
         logger.info('现在开始重新载入dataloader')
         trainer.reset_data_loader_local(instantiate(cfg.dataloader.train))
+        first_iter = False
 
 
 def main(args):

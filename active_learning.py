@@ -163,6 +163,10 @@ def add_list_to_list(source_list, target_list):
 
 
 def geal_sampling(model, sampling_loader, sample_num, geal_file_list):
+    # todo 测试流程能不能跑通
+    # select_sample_file = geal_file_list
+    # write_to_file(geal_file_name, select_sample_file)
+    # return select_sample_file
     # 使用geal进行取样
     print("此处传入的 geal_file_list 长度为 {}".format(str(len(geal_file_list))))
     torch.cuda.empty_cache()
@@ -190,7 +194,7 @@ def geal_sampling(model, sampling_loader, sample_num, geal_file_list):
                                                     distance='euclidean',
                                                     device=torch.device('cuda:0'))
             # count += cluster_centers.shape[0]
-            img_features_list_all.append(cluster_centers)
+            img_features_list_all.append(cluster_centers.cuda())
             # img_features_list_all.extend(img_feature_list[b].cpu())
         img_list_all.extend([x['file_name'] for x in data])
 
