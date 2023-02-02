@@ -39,7 +39,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.
 
 logger = logging.getLogger("detrex")
 
-activate_learning_flag = False  # todo 如果使用主动学习打开该选项
+activate_learning_flag = True  # todo 如果使用主动学习打开该选项
+sample_use_al = True   # 挑选样本是否使用al，false时为随机
+train_resume = True    # 是否恢复
 geal_file_name = 'geal_file_list.txt'
 
 
@@ -289,7 +291,7 @@ def do_train(args, cfg):
         sample_count += 1000
         geal_file_list = active_learning.read_from_file(geal_file_name)
         logger.info('当前轮次训练完毕，现在主动学习将选择出 {} 个样本进行训练,实际选出了 {} 个样本进行训练'.format(str(sample_count), str(len(geal_file_list))))
-        select_sample_list = active_learning.geal_sampling(trainer.model, train_loader_all, sample_count, geal_file_list)
+        select_sample_list = active_learning.geal_sampling(trainer.model, train_loader_all, sample_count, geal_file_list, sample_use_al)
         active_learning.add_list_to_list(select_sample_list, geal_file_list)
         trainer.model.set_mode_sampling(False)
         logger.info('现在开始重新载入dataloader')
@@ -321,7 +323,7 @@ if __name__ == "__main__":
     DatasetCatalog.register('coco_2017_val_fddance', lambda: load_coco_json('/home/fddance/data/dataset/coco/annotations/instances_val2017.json',
                                                                               '/home/fddance/data/dataset/coco/val2017',
                                                                               'coco_2017_val_fddance'))
-    args = default_argument_parser(config_file='projects/dino/configs/dino_r50_4scale_12ep.py', resume=False)
+    args = default_argument_parser(config_file='projects/dino/configs/dino_r50_4scale_12ep.py', resume=train_resume)
     # args.add_argument()
     args = args.parse_args()
     launch(

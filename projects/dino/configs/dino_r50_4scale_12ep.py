@@ -12,7 +12,7 @@ train.init_checkpoint = "detectron2://ImageNetPretrained/torchvision/R-50.pkl"
 train.output_dir = "./output/dino_r50_4scale_12ep"
 
 # max training iterations
-train.max_iter = 1400000
+train.max_iter = 2400000
 
 # run evaluation every 5000 iters
 train.eval_period = 5000

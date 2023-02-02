@@ -1,4 +1,5 @@
 import os
+import random
 
 import torch
 
@@ -162,13 +163,14 @@ def add_list_to_list(source_list, target_list):
             target_list.append(source_list[i])
 
 
-def geal_sampling(model, sampling_loader, sample_num, geal_file_list):
+def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use_al):
     # todo 测试流程能不能跑通
     # select_sample_file = geal_file_list
     # write_to_file(geal_file_name, select_sample_file)
     # return select_sample_file
     # 使用geal进行取样
     print("此处传入的 geal_file_list 长度为 {}".format(str(len(geal_file_list))))
+    geal_file_list_set = set(geal_file_list)
     torch.cuda.empty_cache()
     model.set_mode_sampling(True)
     sampling_loader_iter = iter(sampling_loader)
@@ -182,6 +184,10 @@ def geal_sampling(model, sampling_loader, sample_num, geal_file_list):
     import math
     for i in range(0, math.ceil(len(sampling_loader.dataset.dataset.dataset) / sampling_loader.batch_size)):
         data = next(sampling_loader_iter)
+        if not sample_use_al:
+            # 判断是否使用geal选择样本
+            img_list_all.extend([x['file_name'] for x in data])
+            continue
         img_feature_list = model(data)  # bz * wh * channels
         # attn_sort, idx_sort = torch.sort(img_feature_list, dim=1, descending=False)  # 对特征attn进行排序
         # attn_cum = torch.cumsum(attn_sort, dim=1)  # (bs, wh) 对每张图片的最终的的特征图进行累加操作，进行过归一化理论上每个数组最后一个数字都是1
@@ -197,22 +203,31 @@ def geal_sampling(model, sampling_loader, sample_num, geal_file_list):
             img_features_list_all.append(cluster_centers.cuda())
             # img_features_list_all.extend(img_feature_list[b].cpu())
         img_list_all.extend([x['file_name'] for x in data])
-
-    # img_features_list_all = torch.cat(img_features_list_all, dim=0)
-    # 对已经提取出来的特征进行挑选
-    torch.cuda.empty_cache()
-    img_features_list_all = torch.cat(img_features_list_all, dim=0).cuda()
-    id2idx = {}
-    init_ids = []
-    geal_file_list_set = set(geal_file_list)
-    for i in range(0, len(img_list_all)):
-        id2idx[i] = torch.arange(i * num_clusters, (i + 1) * num_clusters)
-        if geal_file_list_set.__contains__(img_list_all[i]):
-            init_ids.append(i)
-    print("此处初始化的 init_ids 长度为 {}".format(str(len(init_ids))))
-    select_samples = farthest_distance_sample_dense(img_features_list_all, id2idx, sample_num,
-                                   partial(get_distance, type='cosine'), init_ids=init_ids, topk=None)
-    for i in select_samples:
-        select_sample_file.append(img_list_all[i])
+    if sample_use_al:
+        # img_features_list_all = torch.cat(img_features_list_all, dim=0)
+        # 对已经提取出来的特征进行挑选
+        torch.cuda.empty_cache()
+        img_features_list_all = torch.cat(img_features_list_all, dim=0).cuda()
+        id2idx = {}
+        init_ids = []
+        for i in range(0, len(img_list_all)):
+            id2idx[i] = torch.arange(i * num_clusters, (i + 1) * num_clusters)
+            if geal_file_list_set.__contains__(img_list_all[i]):
+                init_ids.append(i)
+        print("此处初始化的 init_ids 长度为 {}".format(str(len(init_ids))))
+        select_samples = farthest_distance_sample_dense(img_features_list_all, id2idx, sample_num,
+                                       partial(get_distance, type='cosine'), init_ids=init_ids, topk=None)
+        for i in select_samples:
+            select_sample_file.append(img_list_all[i])
+    else:
+        # 不使用al则直接随机挑选
+        select_sample_file_temp = random.sample(img_list_all, sample_num)
+        for img_path in select_sample_file_temp:
+            if geal_file_list_set.__contains__(img_path):
+                select_sample_file_temp.remove(img_path)
+        if len(geal_file_list) + len(select_sample_file_temp) > sample_num:
+            select_sample_file_temp = select_sample_file_temp[0:sample_num - len(geal_file_list)]
+        select_sample_file.extend(geal_file_list)
+        select_sample_file.extend(select_sample_file_temp)
     write_to_file(geal_file_name, select_sample_file)
     return select_sample_file
