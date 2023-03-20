@@ -255,6 +255,8 @@ def do_train(args, cfg):
     else:
         start_iter = 0
     if not activate_learning_flag:
+        # print(do_test(cfg, model))
+        trainer.temp_max_iter = cfg.train.max_iter
         trainer.train(start_iter, cfg.train.max_iter)
         return
 
@@ -317,11 +319,11 @@ def main(args):
 if __name__ == "__main__":
     from detectron2.data import DatasetCatalog
     from detectron2.data.datasets import load_coco_json
-    DatasetCatalog.register('coco_2017_train_fddance', lambda: load_coco_json('/home/fddance/data/dataset/coco/annotations/instances_train2017.json',
-                                                                              '/home/fddance/data/dataset/coco/train2017',
+    DatasetCatalog.register('coco_2017_train_fddance', lambda: load_coco_json('/mnt/84BA4F3DBA4F2ACE/ubuntu/data/dataset/coco/annotations/voc2012_dataset_train.json',
+                                                                              '',
                                                                               'coco_2017_train_fddance'))
-    DatasetCatalog.register('coco_2017_val_fddance', lambda: load_coco_json('/home/fddance/data/dataset/coco/annotations/instances_val2017.json',
-                                                                              '/home/fddance/data/dataset/coco/val2017',
+    DatasetCatalog.register('coco_2017_val_fddance', lambda: load_coco_json('/mnt/84BA4F3DBA4F2ACE/ubuntu/data/dataset/coco/annotations/voc2012_dataset_val.json',
+                                                                              '',
                                                                               'coco_2017_val_fddance'))
     args = default_argument_parser(config_file='projects/dino/configs/dino_r50_4scale_12ep.py', resume=train_resume)
     # args.add_argument()

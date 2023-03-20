@@ -459,6 +459,7 @@ class DINOTransformer(nn.Module):
             inter_references_out,
             target_unact,
             topk_coords_unact.sigmoid(),
+            memory[:, level_start_index[3].item():memory.shape[1], :].detach()
         )
 
     def encoder_features(
@@ -516,4 +517,4 @@ class DINOTransformer(nn.Module):
             valid_ratios=valid_ratios,
             **kwargs,
         )
-        return memory[:, level_start_index[3].item():memory.shape[1], :].detach()
+        return memory[:, level_start_index[3].item():memory.shape[1], :].detach()  # 此处只获取了感受野最大比例的即原本宽高/8之后取得的特征图

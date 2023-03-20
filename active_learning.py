@@ -163,7 +163,7 @@ def add_list_to_list(source_list, target_list):
             target_list.append(source_list[i])
 
 
-def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use_al):
+def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use_al, get_feature=False):
     # todo 测试流程能不能跑通
     # select_sample_file = geal_file_list
     # write_to_file(geal_file_name, select_sample_file)
@@ -196,18 +196,25 @@ def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use
             # mask[b][idx_sort[b]] = mask[b].clone()
             # if torch.sum(mask[b]) > 0:
             #     img_feature_list[b] = img_feature_list[b][mask[b]]  # 保留学习率筛选下的特征
+            # todo 此处需要修改kmeans源码因为初始化的种子可能会出现问题导致死循环
             cluster_ids_x, cluster_centers = kmeans(X=img_feature_list[b], num_clusters=num_clusters,
                                                     distance='euclidean',
                                                     device=torch.device('cuda:0'))
             # count += cluster_centers.shape[0]
-            img_features_list_all.append(cluster_centers.cuda())
+            img_features_list_all.append(cluster_centers.cuda())  # cluster_centers: num_clusters * channels
             # img_features_list_all.extend(img_feature_list[b].cpu())
         img_list_all.extend([x['file_name'] for x in data])
+    if get_feature:
+        import numpy as np
+        temp_feature_list = np.asarray([temp_feature.cpu().numpy() for temp_feature in torch.cat(img_features_list_all, dim=0)])
+        np.savetxt('temp_feature_list.csv', temp_feature_list, delimiter=',', fmt='%f', newline='\n')
+        print('这个时候应该把所有的特征全部保存为文件')
+        return
     if sample_use_al:
         # img_features_list_all = torch.cat(img_features_list_all, dim=0)
         # 对已经提取出来的特征进行挑选
         torch.cuda.empty_cache()
-        img_features_list_all = torch.cat(img_features_list_all, dim=0).cuda()
+        img_features_list_all = torch.cat(img_features_list_all, dim=0).cuda()  # image * num_clusters * channels -> (image * num_clusters) * channels
         id2idx = {}
         init_ids = []
         for i in range(0, len(img_list_all)):

@@ -11,11 +11,48 @@ from detectron2.evaluation import COCOEvaluator
 
 from detrex.data import DetrDatasetMapper
 from train_net import filter_dataset_dicts
+from load_image_test import filter_dataset_sample
 
 dataloader = OmegaConf.create()
 
 dataloader.train = L(build_detection_train_loader)(
     dataset=L(filter_dataset_dicts)(data_list=L(get_detection_dataset_dicts)(names="coco_2017_train_fddance")),
+    mapper=L(DetrDatasetMapper)(
+        augmentation=[
+            L(T.RandomFlip)(),
+            L(T.ResizeShortestEdge)(
+                short_edge_length=(480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800),
+                max_size=1333,
+                sample_style="choice",
+            ),
+        ],
+        augmentation_with_crop=[
+            L(T.RandomFlip)(),
+            L(T.ResizeShortestEdge)(
+                short_edge_length=(400, 500, 600),
+                sample_style="choice",
+            ),
+            L(T.RandomCrop)(
+                crop_type="absolute_range",
+                crop_size=(384, 600),
+            ),
+            L(T.ResizeShortestEdge)(
+                short_edge_length=(480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800),
+                max_size=1333,
+                sample_style="choice",
+            ),
+        ],
+        is_train=True,
+        mask_on=False,
+        img_format="RGB",
+    ),
+    total_batch_size=16,
+    num_workers=4,
+)
+
+
+dataloader.train_sample = L(build_detection_train_loader)(
+    dataset=L(filter_dataset_sample)(data_list=L(get_detection_dataset_dicts)(names="coco_2017_train_fddance")),
     mapper=L(DetrDatasetMapper)(
         augmentation=[
             L(T.RandomFlip)(),
@@ -80,7 +117,7 @@ dataloader.train_all = L(build_detection_train_loader)(
         mask_on=False,
         img_format="RGB",
     ),
-    total_batch_size=8,
+    total_batch_size=2,
     num_workers=4,
 )
 
