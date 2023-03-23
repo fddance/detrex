@@ -117,7 +117,7 @@ dataloader.train_all = L(build_detection_train_loader)(
         mask_on=False,
         img_format="RGB",
     ),
-    total_batch_size=2,
+    total_batch_size=1,
     num_workers=4,
 )
 

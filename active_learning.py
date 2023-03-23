@@ -3,8 +3,6 @@ import random
 
 import torch
 
-geal_file_name = 'geal_file_list.txt'
-
 
 def farthest_distance_sample_dense(all_features, id2idx, sample_num, dist_func, init_ids=[], topk=None):
     """
@@ -139,7 +137,7 @@ def update_distance_dense(distances, all_features, cfeatures, dist_func):
 def write_to_file(filename, img_path_list):
     temp_list = []
     for img_path in img_path_list:
-        temp_list.append(img_path + '\n')
+        temp_list.append(str(img_path) + '\n')
     with open(filename, "w") as file:
         file.writelines(temp_list)
 
@@ -163,7 +161,7 @@ def add_list_to_list(source_list, target_list):
             target_list.append(source_list[i])
 
 
-def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use_al, get_feature=False):
+def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use_al, geal_file_name, get_feature=False):
     # todo 测试流程能不能跑通
     # select_sample_file = geal_file_list
     # write_to_file(geal_file_name, select_sample_file)
@@ -179,6 +177,7 @@ def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use
     img_list_all = []
     img_features_list_all = []
     num_clusters = 5
+    sample_num = min(sample_num, len(sampling_loader.dataset.dataset.dataset))
     from kmeans_pytorch import kmeans
     from functools import partial
     import math
@@ -206,7 +205,8 @@ def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use
         img_list_all.extend([x['file_name'] for x in data])
     if get_feature:
         import numpy as np
-        temp_feature_list = np.asarray([temp_feature.cpu().numpy() for temp_feature in torch.cat(img_features_list_all, dim=0)])
+        temp_feature_list = np.asarray(
+            [temp_feature.cpu().numpy() for temp_feature in torch.cat(img_features_list_all, dim=0)])
         np.savetxt('temp_feature_list.csv', temp_feature_list, delimiter=',', fmt='%f', newline='\n')
         print('这个时候应该把所有的特征全部保存为文件')
         return
@@ -214,7 +214,8 @@ def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use
         # img_features_list_all = torch.cat(img_features_list_all, dim=0)
         # 对已经提取出来的特征进行挑选
         torch.cuda.empty_cache()
-        img_features_list_all = torch.cat(img_features_list_all, dim=0).cuda()  # image * num_clusters * channels -> (image * num_clusters) * channels
+        img_features_list_all = torch.cat(img_features_list_all,
+                                          dim=0).cuda()  # image * num_clusters * channels -> (image * num_clusters) * channels
         id2idx = {}
         init_ids = []
         for i in range(0, len(img_list_all)):
@@ -223,7 +224,8 @@ def geal_sampling(model, sampling_loader, sample_num, geal_file_list, sample_use
                 init_ids.append(i)
         print("此处初始化的 init_ids 长度为 {}".format(str(len(init_ids))))
         select_samples = farthest_distance_sample_dense(img_features_list_all, id2idx, sample_num,
-                                       partial(get_distance, type='cosine'), init_ids=init_ids, topk=None)
+                                                        partial(get_distance, type='cosine'), init_ids=init_ids,
+                                                        topk=None)
         for i in select_samples:
             select_sample_file.append(img_list_all[i])
     else:

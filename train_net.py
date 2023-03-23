@@ -39,10 +39,12 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.
 
 logger = logging.getLogger("detrex")
 
-activate_learning_flag = True  # todo 如果使用主动学习打开该选项
-sample_use_al = True   # 挑选样本是否使用al，false时为随机
+activate_learning_flag = False  # todo 如果使用主动学习打开该选项
+sample_use_al = False   # 挑选样本是否使用al，false时为随机
 train_resume = True    # 是否恢复
-geal_file_name = 'geal_file_list.txt'
+geal_file_name = 'geal_file_list_al.txt' if sample_use_al else 'geal_file_list_random.txt'
+base_sample_count = 5863     # 基础选择数量，voc总样本数5717，此处取10%
+epoch = 5  # 主动学习每次选择样本后迭代多少次
 
 
 class Trainer(SimpleTrainer):
@@ -142,6 +144,7 @@ class Trainer(SimpleTrainer):
 
 
 def freeze_backbone(model):
+    print("开始冻结网络")
     # 冻结所有特征提取网络,其他地方直接开始训练
     for k, v in model.named_parameters():
         if 'backbone' in k:
@@ -150,6 +153,7 @@ def freeze_backbone(model):
 
 def filter_dataset_dicts(data_list):
     if not activate_learning_flag:
+    # if True:
         return data_list
     print("此处进行样本的筛选")
     geal_file_list = active_learning.read_from_file(geal_file_name)
@@ -157,8 +161,8 @@ def filter_dataset_dicts(data_list):
     if len(geal_file_list) < 1:
         # 第一次随机初始化
         import random
-        print('现在是第一次加载，随机选取 1000 个样本')
-        list_index = random.sample(range(0, len(data_list)), 1000)
+        print('现在是第一次加载，随机选取 {} 个样本'.format(base_sample_count))
+        list_index = random.sample(range(0, len(data_list)), base_sample_count)
         for index in list_index:
             data_result.append(data_list[index])
             geal_file_list.append(data_list[index]['file_name'])
@@ -204,7 +208,6 @@ def do_train(args, cfg):
     """
     # 此处定义模型,模型所有相关均在此处
     model = instantiate(cfg.model)
-    freeze_backbone(model)
     logger = logging.getLogger("detectron2")
     logger.info("Model:\n{}".format(model))
     model.to(cfg.train.device)
@@ -248,6 +251,7 @@ def do_train(args, cfg):
     )
 
     checkpointer.resume_or_load(cfg.train.init_checkpoint, resume=args.resume)
+    freeze_backbone(model)  # 读取后冻结网络
     if args.resume and checkpointer.has_checkpoint():
         # The checkpoint stores the training iteration that just finished, thus we start
         # at the next iteration
@@ -260,23 +264,24 @@ def do_train(args, cfg):
         trainer.train(start_iter, cfg.train.max_iter)
         return
 
-    sample_count = 1000
-    epoch = 5
+    sample_count = base_sample_count
     train_loader_all = instantiate(cfg.dataloader.train_all)
     if args.resume:
         geal_file_list = active_learning.read_from_file(geal_file_name)
         sample_count = len(geal_file_list) if len(geal_file_list) > 0 else sample_count
     first_iter = True
-    pass_train = False
+    pass_train = False  # 这个为true表明当前阶段的训练已经完成，在挑选样本时出现问题
     while start_iter < cfg.train.max_iter:
+        # active_learning.geal_sampling(trainer.model, train_loader_all, sample_count, geal_file_list, sample_use_al, geal_file_name, get_feature=True)
+        # raise Exception
         logger.info('现在使用了 {} 个样本训练 {} 个epoch'.format(str(sample_count), str(epoch)))
         # 此处正常开始本次选择样本后的训练
         # 此处考虑到如果是恢复训练可能迭代不准确
-        if first_iter and args.resume and sample_count > 1000:
-            temp_sample_count = 1000
+        if first_iter and args.resume and sample_count > base_sample_count:
+            temp_sample_count = base_sample_count
             temp_max_iter = temp_sample_count * epoch
             while temp_sample_count < sample_count:
-                temp_sample_count = temp_sample_count + 1000
+                temp_sample_count = temp_sample_count + base_sample_count
                 temp_max_iter = temp_max_iter + temp_sample_count * epoch
             if temp_max_iter == start_iter:
                 pass_train = True
@@ -290,10 +295,10 @@ def do_train(args, cfg):
             trainer.train(start_iter, cfg.train.max_iter)
         start_iter = temp_max_iter
         # 此处开始进行主动学习样本的筛选以及dataloader重载
-        sample_count += 1000
+        sample_count += base_sample_count
         geal_file_list = active_learning.read_from_file(geal_file_name)
-        logger.info('当前轮次训练完毕，现在主动学习将选择出 {} 个样本进行训练,实际选出了 {} 个样本进行训练'.format(str(sample_count), str(len(geal_file_list))))
-        select_sample_list = active_learning.geal_sampling(trainer.model, train_loader_all, sample_count, geal_file_list, sample_use_al)
+        logger.info('当前轮次训练完毕，现在主动学习将选择出 {} 个样本进行训练,目前已经选出了 {} 个样本进行训练'.format(str(sample_count), str(len(geal_file_list))))
+        select_sample_list = active_learning.geal_sampling(trainer.model, train_loader_all, sample_count, geal_file_list, sample_use_al, geal_file_name)
         active_learning.add_list_to_list(select_sample_list, geal_file_list)
         trainer.model.set_mode_sampling(False)
         logger.info('现在开始重新载入dataloader')
@@ -319,12 +324,15 @@ def main(args):
 if __name__ == "__main__":
     from detectron2.data import DatasetCatalog
     from detectron2.data.datasets import load_coco_json
-    DatasetCatalog.register('coco_2017_train_fddance', lambda: load_coco_json('/mnt/84BA4F3DBA4F2ACE/ubuntu/data/dataset/coco/annotations/voc2012_dataset_train.json',
-                                                                              '',
-                                                                              'coco_2017_train_fddance'))
-    DatasetCatalog.register('coco_2017_val_fddance', lambda: load_coco_json('/mnt/84BA4F3DBA4F2ACE/ubuntu/data/dataset/coco/annotations/voc2012_dataset_val.json',
-                                                                              '',
-                                                                              'coco_2017_val_fddance'))
+
+    DatasetCatalog.register('coco_2017_train_fddance', lambda: load_coco_json(
+        '/mnt/84BA4F3DBA4F2ACE/ubuntu/data/dataset/coco/annotations/instances_train2017.json',
+        '/mnt/84BA4F3DBA4F2ACE/ubuntu/data/dataset/coco/train2017',
+        'coco_2017_train_fddance'))
+    DatasetCatalog.register('coco_2017_val_fddance', lambda: load_coco_json(
+        '/mnt/84BA4F3DBA4F2ACE/ubuntu/data/dataset/coco/annotations/instances_val2017.json',
+        '/mnt/84BA4F3DBA4F2ACE/ubuntu/data/dataset/coco/val2017',
+        'coco_2017_val_fddance'))
     args = default_argument_parser(config_file='projects/dino/configs/dino_r50_4scale_12ep.py', resume=train_resume)
     # args.add_argument()
     args = args.parse_args()
