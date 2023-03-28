@@ -34,6 +34,7 @@ from detectron2.engine.defaults import create_ddp_model
 from detectron2.evaluation import inference_on_dataset, print_csv_format
 from detectron2.utils import comm
 import active_learning
+from load_image_test import print_instances_class_histogram, get_class_instance_count
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 
@@ -46,6 +47,16 @@ geal_file_name = 'geal_file_list_al.txt' if sample_use_al else 'geal_file_list_r
 base_sample_count = 5863     # 基础选择数量，voc总样本数5717，此处取10%
 epoch = 5  # 主动学习每次选择样本后迭代多少次
 
+# 打印coco数据集信息
+class_names = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
+               'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
+               'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+               'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard',
+               'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+               'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+               'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard',
+               'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
+               'scissors', 'teddy bear', 'hair drier', 'toothbrush']
 
 class Trainer(SimpleTrainer):
     """
@@ -144,7 +155,7 @@ class Trainer(SimpleTrainer):
 
 
 def freeze_backbone(model):
-    print("开始冻结网络")
+    logger.info("开始冻结网络")
     # 冻结所有特征提取网络,其他地方直接开始训练
     for k, v in model.named_parameters():
         if 'backbone' in k:
@@ -155,13 +166,13 @@ def filter_dataset_dicts(data_list):
     if not activate_learning_flag:
     # if True:
         return data_list
-    print("此处进行样本的筛选")
+    logger.info("此处进行样本的筛选")
     geal_file_list = active_learning.read_from_file(geal_file_name)
     data_result = []
     if len(geal_file_list) < 1:
         # 第一次随机初始化
         import random
-        print('现在是第一次加载，随机选取 {} 个样本'.format(base_sample_count))
+        logger.info('现在是第一次加载，随机选取 {} 个样本'.format(base_sample_count))
         list_index = random.sample(range(0, len(data_list)), base_sample_count)
         for index in list_index:
             data_result.append(data_list[index])
@@ -169,12 +180,16 @@ def filter_dataset_dicts(data_list):
         active_learning.write_to_file(geal_file_name, geal_file_list)
     else:
         # 之后使用每次选择出来的数字
-        print('现在开始主动学习选择的样本')
+        logger.info('现在开始主动学习选择的样本')
         geal_file_list_set = set(geal_file_list)
         for data in data_list:
             if geal_file_list_set.__contains__(data['file_name']):
                 data_result.append(data)
-    print('本次加载了 {} 个样本进行训练'.format(str(len(data_result))))
+    logger.info('本次加载了 {} 个样本进行训练'.format(str(len(data_result))))
+    sub_sample_size = len(data_result) / len(data_list)
+    print("选出数据占总数据的 {:.3f}".format(sub_sample_size))
+    print_instances_class_histogram(data_result, class_names, sub_sample_size,
+                                    hist_togram_all=get_class_instance_count(data_list, class_names))
     return data_result
 
 
